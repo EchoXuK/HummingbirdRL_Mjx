@@ -1,0 +1,10 @@
+# 正式完整环境训练/评估路线兼容入口。
+# 真正的 route 覆盖定义位于 configs/routes.yaml。
+#
+# 用法：
+#   python training/train.py --config configs/route_full.yaml
+#   python training/train.py --route full
+#   python training/eval.py --config configs/route_full.yaml --checkpoint <ckpt>
+
+experiment:
+  route: full

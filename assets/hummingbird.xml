@@ -1,0 +1,219 @@
+<!--
+  Hummingbird Quadrotor MJCF Model
+  迁移自 OmniDrones/omni_drones/robots/drone/hummingbird.py
+
+  物理参数来源: third_party/OmniDrones/omni_drones/robots/assets/usd/hummingbird.yaml
+  ============================================================
+  质量 (mass):       0.716 kg
+  转动惯量:          Ixx = Iyy = 0.007 kg·m²，Izz = 0.012 kg·m²
+  臂长 (arm_length): 0.17 m（中心到电机，"+" 型布局）
+  最大推力 (KF):     6.00 N / 电机
+  转矩常数 (KM):     0.0961 N·m / 电机
+  扭矩-推力比:       KM/KF = 0.01602 m
+  ============================================================
+
+  电机布局（"+" 型，从上方俯视，+x 为前方）：
+    电机0 (前, +x): CCW 逆时针 → 反应扭矩 = -z（偏航负方向）
+    电机1 (右, +y): CW  顺时针 → 反应扭矩 = +z（偏航正方向）
+    电机2 (后, -x): CCW 逆时针 → 反应扭矩 = -z（偏航负方向）
+    电机3 (左, -y): CW  顺时针 → 反应扭矩 = +z（偏航正方向）
+
+  控制量: ctrl ∈ [0, 6.0] N （实际推力，非归一化油门）
+  悬停推力: m*g/4 = 0.716*9.81/4 ≈ 1.756 N/电机
+-->
+
+<mujoco model="hummingbird">
+
+  <!-- ==================== 编译器设置 ==================== -->
+  <!--
+    inertiafromgeom="false": 惯性矩由 <inertial> 元素指定，忽略几何体质量
+    autolimits="true": 自动处理关节限位
+  -->
+  <compiler angle="radian" inertiafromgeom="false" autolimits="true"/>
+
+  <!-- ==================== 物理选项 ==================== -->
+  <!--
+    timestep=0.016s → 62.5 Hz，与原 Isaac Sim cfg.sim.dt=0.016 完全一致
+    integrator="RK4": 4阶龙格库塔积分，比欧拉法更稳定（飞行场景推荐）
+  -->
+  <option gravity="0 0 -9.81" timestep="0.016" integrator="RK4"/>
+
+  <!-- ==================== 默认属性 ==================== -->
+  <default>
+    <!-- 关节默认：无阻尼，无限制 -->
+    <joint damping="0.0001" limited="false" armature="0"/>
+    <!-- 视觉几何体：无碰撞（contype=0 conaffinity=0） -->
+    <geom contype="0" conaffinity="0" density="0"/>
+  </default>
+
+  <!-- ==================== 可视化设置 ==================== -->
+  <visual>
+    <headlight diffuse="0.6 0.6 0.6" ambient="0.4 0.4 0.4" specular="0 0 0"/>
+    <rgba haze="0.15 0.25 0.35 1"/>
+    <global azimuth="150" elevation="-25" offwidth="1024" offheight="1024"/>
+    <quality shadowsize="2048"/>
+  </visual>
+
+  <!--
+    MJX `ray()` 在 MuJoCo 3.4.0 中会访问 `mat_rgba[m.geom_matid]`。
+    当模型完全没有 material 资产时，`mat_rgba` 长度为 0，会触发越界。
+    这里显式放置一个哑元材质，避免 scene raycast 路径失败。
+  -->
+  <asset>
+    <material name="raycast_dummy_material" rgba="1 1 1 1"/>
+  </asset>
+
+  <!-- ==================== 世界场景 ==================== -->
+  <worldbody>
+
+    <!-- 地面（有碰撞） -->
+        <geom name="ground" type="plane" size="50 50 0.1" pos="0 0 0"
+          rgba="0.38 0.38 0.38 1" contype="2" conaffinity="1" condim="3"
+          friction="0.8 0.1 0.1"/>
+
+    <!-- 场景灯光 -->
+    <light name="main_light" directional="true"
+           diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2"
+           pos="0 0 10" dir="0 0 -1" castshadow="true"/>
+    <light name="fill_light" directional="false"
+           diffuse="0.3 0.3 0.3" specular="0 0 0"
+           pos="5 -5 8" dir="-1 1 -1" castshadow="false"/>
+
+    <!-- ==================== Hummingbird 无人机本体 ==================== -->
+    <!--
+      自由关节 (root_joint): 6自由度，允许无人机在空间自由运动
+      惯性: 完全由 <inertial> 指定，几何体仅用于可视化
+    -->
+    <body name="base_link" pos="0 0 2">
+
+      <!-- 6自由度自由关节（等效 Isaac Sim 的刚体） -->
+      <joint name="root_joint" type="free"/>
+
+      <!-- 惯性属性（来自 OmniDrones hummingbird.yaml） -->
+      <!--
+        mass = 0.716 kg
+        Ixx = Iyy = 0.007 kg·m²（对称机体）
+        Izz = 0.012 kg·m²（平板形，绕z轴惯量更大）
+      -->
+      <inertial mass="0.716" pos="0 0 0"
+                diaginertia="0.007 0.007 0.012"/>
+
+      <!-- 机体外壳（纯视觉，无碰撞） -->
+      <geom name="body" type="box" size="0.055 0.055 0.015"
+            rgba="0.15 0.35 0.75 1"/>
+
+      <!--
+        简化碰撞代理（真实碰撞用，视觉上不可见）
+        - 使用单球体近似机体安全包络，避免让所有视觉几何参与接触求解
+        - contype=1, conaffinity=6：与地面(contype=2)和静态障碍(contype=4)发生碰撞
+      -->
+      <geom name="collision_hull" type="sphere" size="0.18" pos="0 0 0"
+        rgba="1 1 1 0" density="0"
+        contype="1" conaffinity="14" condim="3"
+        friction="0.8 0.1 0.1"/>
+
+      <!-- 前方方向标记（红色，+x 方向） -->
+      <geom name="front_marker" type="box" size="0.02 0.008 0.008"
+            pos="0.07 0 0" rgba="0.9 0.1 0.1 1"/>
+
+      <!-- 机臂（"+" 型，纯视觉） -->
+      <!-- 前后臂（沿x轴） -->
+      <geom name="arm_front_back" type="capsule"
+            fromto="-0.17 0 0  0.17 0 0" size="0.009"
+            rgba="0.25 0.25 0.25 0.95"/>
+      <!-- 左右臂（沿y轴） -->
+      <geom name="arm_left_right" type="capsule"
+            fromto="0 -0.17 0  0 0.17 0" size="0.009"
+            rgba="0.25 0.25 0.25 0.95"/>
+
+      <!--
+        ====== 电机0：前方 (+x=0.17, y=0, z=0.02) ======
+        旋转方向: CCW（逆时针，俯视） → direction = -1
+        反应扭矩（偏航）: 负 z 方向 → gear[5] = -0.01602
+        螺旋桨盘：半径0.12m，高度0.002m（可视化）
+      -->
+      <site name="rotor0" pos="0.17 0 0.02" size="0.006" rgba="0.2 0.8 0.2 1"/>
+      <geom name="prop0" type="cylinder" pos="0.17 0 0.022"
+            size="0.12 0.001" rgba="0.6 0.9 0.6 0.35"/>
+
+      <!--
+        ====== 电机1：右方 (x=0, +y=0.17, z=0.02) ======
+        旋转方向: CW（顺时针，俯视） → direction = +1
+        反应扭矩（偏航）: 正 z 方向 → gear[5] = +0.01602
+      -->
+      <site name="rotor1" pos="0 0.17 0.02" size="0.006" rgba="0.2 0.8 0.2 1"/>
+      <geom name="prop1" type="cylinder" pos="0 0.17 0.022"
+            size="0.12 0.001" rgba="0.9 0.6 0.6 0.35"/>
+
+      <!--
+        ====== 电机2：后方 (-x=-0.17, y=0, z=0.02) ======
+        旋转方向: CCW（逆时针） → gear[5] = -0.01602
+      -->
+      <site name="rotor2" pos="-0.17 0 0.02" size="0.006" rgba="0.2 0.8 0.2 1"/>
+      <geom name="prop2" type="cylinder" pos="-0.17 0 0.022"
+            size="0.12 0.001" rgba="0.6 0.9 0.6 0.35"/>
+
+      <!--
+        ====== 电机3：左方 (x=0, -y=-0.17, z=0.02) ======
+        旋转方向: CW（顺时针） → gear[5] = +0.01602
+      -->
+      <site name="rotor3" pos="0 -0.17 0.02" size="0.006" rgba="0.2 0.8 0.2 1"/>
+      <geom name="prop3" type="cylinder" pos="0 -0.17 0.022"
+            size="0.12 0.001" rgba="0.9 0.6 0.6 0.35"/>
+
+    </body> <!-- end base_link -->
+
+  </worldbody>
+
+  <!-- ==================== 执行器（电机推力） ==================== -->
+  <!--
+    使用 <general> 执行器，transmission="site"
+    gear = [Fx, Fy, Fz, Tx, Ty, Tz]：施加在 site 坐标系下的力和力矩
+
+    推力分量 gear[2]=1.0: ctrl → Fz = 1.0 * ctrl (N)，沿机体 +z 方向
+    偏航力矩  gear[5]=±km_ratio: ctrl → Tz = ±0.01602 * ctrl (N·m)
+
+    注意: site 相对于 base_link 中心的位置偏移会自动产生俯仰/滚转力矩
+         （MuJoCo 在坐标变换时自动计算力矩臂效应）
+
+    ctrlrange = [0, 6.0]: 对应 [0, KF=6.0 N] 的推力范围
+    悬停条件: 每电机 ctrl = m*g/4 = 0.716*9.81/4 ≈ 1.756 N
+  -->
+  <actuator>
+    <!-- 电机0：前方，CCW，偏航力矩为负 -->
+    <general name="motor0" site="rotor0"
+             gear="0 0 1  0 0 -0.01602"
+             ctrllimited="true" ctrlrange="0 6.0"/>
+
+    <!-- 电机1：右方，CW，偏航力矩为正 -->
+    <general name="motor1" site="rotor1"
+             gear="0 0 1  0 0  0.01602"
+             ctrllimited="true" ctrlrange="0 6.0"/>
+
+    <!-- 电机2：后方，CCW，偏航力矩为负 -->
+    <general name="motor2" site="rotor2"
+             gear="0 0 1  0 0 -0.01602"
+             ctrllimited="true" ctrlrange="0 6.0"/>
+
+    <!-- 电机3：左方，CW，偏航力矩为正 -->
+    <general name="motor3" site="rotor3"
+             gear="0 0 1  0 0  0.01602"
+             ctrllimited="true" ctrlrange="0 6.0"/>
+  </actuator>
+
+  <!-- ==================== 传感器（用于 MJX 状态提取） ==================== -->
+  <!--
+    这些传感器等效于原 env.py 中的 drone.get_state() 调用
+    framepos    → drone_pos (3,)
+    framequat   → drone_quat (4,) [w, x, y, z]
+    framelinvel → drone_linvel (3,) 世界系线速度
+    frameangvel → drone_angvel (3,) 世界系角速度
+  -->
+  <sensor>
+    <framepos    name="drone_pos"     objtype="body" objname="base_link"/>
+    <framequat   name="drone_quat"    objtype="body" objname="base_link"/>
+    <framelinvel name="drone_linvel"  objtype="body" objname="base_link"/>
+    <frameangvel name="drone_angvel"  objtype="body" objname="base_link"/>
+  </sensor>
+
+</mujoco>

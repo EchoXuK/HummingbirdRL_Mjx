@@ -1,0 +1,28 @@
+# 正式路线真源。
+#
+# 约定：
+# - `default.yaml` 提供默认基线配置
+# - 本文件只描述正式 route/profile 对基线的结构性覆盖
+# - `route_8d.yaml` / `route_full.yaml` 仅保留兼容入口，不再重复维护具体字段
+
+routes:
+  8d:
+    env:
+      physical_static_obstacles: true
+      physical_dynamic_obstacles: true
+      lidar_use_scene_ray: true
+      lidar_scan_dynamic: false
+      regenerate_static_obs_interval: 0
+    ppo:
+      use_full_obs: false
+
+  full:
+    env:
+      physical_static_obstacles: true
+      physical_dynamic_obstacles: true
+      lidar_use_scene_ray: true
+      lidar_scan_dynamic: false
+      static_obstacle_representation: box
+      regenerate_static_obs_interval: 0
+    ppo:
+      use_full_obs: true

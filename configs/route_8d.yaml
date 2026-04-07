@@ -1,0 +1,9 @@
+# 正式 8D 训练/评估路线兼容入口。
+# 真正的 route 覆盖定义位于 configs/routes.yaml。
+#
+# 用法：
+#   python training/train.py --config configs/route_8d.yaml
+#   python training/eval.py --config configs/route_8d.yaml --checkpoint <ckpt>
+
+experiment:
+  route: 8d

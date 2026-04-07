@@ -1,0 +1,78 @@
+# MJX NavRL 训练配置
+# 迁移自: training/cfg/train.yaml + ppo.yaml + sim.yaml
+
+# ============================================================
+# 环境配置
+# ============================================================
+env:
+  num_envs: 2048                  # 并行环境数（RTX 3060: 建议 1024-2048）
+  max_episode_length: 2200        # 最大 episode 步数
+  action_limit: 2.0               # m/s, 速度指令上限
+  spawn_distance: 24.0            # m, 生成区域半径
+  spawn_edge_inset: 0.5           # m, hfield 边界起飞安全内缩
+  height_range_min: 0.5           # m
+  height_range_max: 2.5           # m
+  # ---- 完整环境配置（含 LiDAR + 动态障碍物）----
+  lidar_range: 4.0                # m, LiDAR 最大量程
+  n_dynamic_obs: 80               # 动态障碍物数量（8类 × 10个）
+  n_nearest_dynamic: 5            # 观测中使用的最近动态障碍物数量
+  collision_radius: 0.3           # m, 碰撞判定半径
+  vel_resample_steps: 125         # 动态障碍物速度重采样步数（2s @ 62.5Hz）
+  sim_dt: 0.016                   # 仿真步长 (s)
+  dyn_obs_vel_min: 0.5            # m/s, 动态障碍物最小速度
+  dyn_obs_vel_max: 1.5            # m/s, 动态障碍物最大速度（对应原代码 vel_range=[0.5,1.5]）
+  reward_safety_static_coeff: 1.0 # 静态安全奖励系数
+  reward_safety_dynamic_coeff: 1.0  # 动态安全奖励系数
+  dyn_obs_local_range: 5.0        # m, 动态障碍物局部目标采样 x/y 范围（对应原代码 local_range[0]=local_range[1]=5.0）
+  dyn_obs_local_range_z: 4.5      # m, 动态障碍物局部目标采样 z 范围（对应原代码 local_range[2]=4.5）
+  dyn_obs_map_range: 20.0         # m, 动态障碍物 x/y 边界（对应原代码 map_range=[20,20,4.5]）
+  physical_static_obstacles: true  # true = 将静态障碍物真实注入 MuJoCo 物理场景
+  n_static_obs: 350               # 静态障碍物数量（对应原代码 discrete obstacles terrain）
+  static_obs_map_range: 20.0      # m, 静态障碍物/terrain 分布半径
+  static_scene_margin: 1.0        # m, 物理场景外扩边界
+  static_terrain_generator: orbit_discrete  # 静态地形生成模式
+  static_terrain_hscale: 0.1      # m, ORBIT-style heightfield 水平分辨率
+  static_terrain_vscale: 0.1      # m, ORBIT-style heightfield 垂直分辨率
+  static_terrain_platform_width: 0.0  # m, 中心平台宽度
+  static_obstacle_representation: box  # hfield / box
+  hfield_cell_size: 0.1           # m, MuJoCo hfield 栅格精度
+  hfield_base_z: 0.1              # m, hfield 基底厚度
+  physical_dynamic_obstacles: true  # true = 将动态障碍物注入 MuJoCo mocap/geom 场景
+  lidar_scan_dynamic: false        # false = 仅扫描静态障碍物（对应原代码 mesh_prim_paths=["/World/ground"]）
+  lidar_use_scene_ray: true       # true = 静态 LiDAR 优先使用 mjx.ray 查询真实场景
+  regenerate_static_obs_interval: 0  # 0 = 固定静态障碍物；N > 0 = 每 N 迭代重生成并在迭代边界重建 JIT 闭包
+
+# ============================================================
+# PPO 超参数
+# ============================================================
+ppo:
+  gamma: 0.99                     # 折扣因子
+  lmbda: 0.95                     # GAE λ
+  clip_ratio_actor: 0.1           # Actor PPO 裁剪系数
+  clip_ratio_critic: 0.1          # Critic 裁剪系数
+  entropy_coeff: 1.0e-3           # 熵正则化系数
+  learning_rate: 5.0e-4           # Adam 学习率
+  max_grad_norm: 5.0              # 梯度裁剪范数
+  num_epochs: 4                   # 每次更新的 epoch 数
+  num_minibatches: 16             # minibatch 数量
+  huber_delta: 10.0               # Huber loss δ
+  rollout_length: 32              # 每次 rollout 步数
+  use_full_obs: false             # true = 完整多模态环境，false = 简化 8D 环境
+
+# ============================================================
+# 训练配置
+# ============================================================
+training:
+  total_iterations: 182000         # 总训练迭代次数（18200 × 32 × 2048 ≈ 1.19B 帧，对应原代码 max_frame_num: 12e8）
+  eval_interval: 1000              # 评估间隔（迭代数）
+  save_interval: 1000              # 保存间隔（迭代数）
+  log_interval: 10                # 日志打印间隔
+  seed: 42                        # 随机种子
+
+# ============================================================
+# Wandb 配置
+# ============================================================
+wandb:
+  project: "NavRL-MJX"
+  name: "navigation_training"
+  mode: "offline"                  # "online" / "offline" / "disabled"
